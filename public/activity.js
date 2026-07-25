@@ -1,5 +1,5 @@
 const state = {
-  view: 'browse',
+  view: 'home',
   selectedCoach: null,
   selectedSlot: null,
   availabilityDraft: [],
@@ -70,7 +70,7 @@ function render() {
   }
 
   if (state.view === 'browse') {
-    description.textContent = 'Available coaches';
+    description.textContent = 'Select a coach to view their availability.';
     actions.innerHTML = '<button class="secondary" data-action="home">Back</button>';
 
     if (state.loadingCoaches) {
