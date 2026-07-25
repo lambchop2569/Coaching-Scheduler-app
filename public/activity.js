@@ -1,10 +1,11 @@
 const state = {
-  view: 'home',
+  view: 'browse',
   selectedCoach: null,
   selectedSlot: null,
   availabilityDraft: [],
   appointments: [],
-  coaches: []
+  coaches: [],
+  loadingCoaches: true
 };
 
 async function loadCoaches() {
@@ -22,10 +23,12 @@ async function loadCoaches() {
       timezone: coach.timezone || null,
       visibility: coach.visibility || 'all'
     }));
+    state.loadingCoaches = false;
     render();
   } catch (error) {
     console.error('Failed to load coaches', error);
     state.coaches = [];
+    state.loadingCoaches = false;
     render();
   }
 }
@@ -67,8 +70,14 @@ function render() {
   }
 
   if (state.view === 'browse') {
-    description.textContent = 'Select a coach to view their availability.';
+    description.textContent = 'Available coaches';
     actions.innerHTML = '<button class="secondary" data-action="home">Back</button>';
+
+    if (state.loadingCoaches) {
+      details.innerHTML = '<p>Loading available coaches…</p>';
+      return;
+    }
+
     details.innerHTML = state.coaches.length > 0 ? state.coaches.map((coach) => `
       <div class="coach-item">
         <div class="coach-summary">

@@ -388,6 +388,30 @@
       "timezone": "America/Los_Angeles",
       "createdAt": "2026-07-25T07:41:49.399Z",
       "scheduledRestoreDate": "2026-07-27"
+    },
+    {
+      "id": "1785020455942",
+      "userId": "122217209215975425",
+      "username": "umbra_mort1s",
+      "avatarUrl": "https://cdn.discordapp.com/avatars/122217209215975425/252171bb316c50abe280523a92bc5bdc.png",
+      "bio": "test",
+      "specialties": [
+        "test"
+      ],
+      "slots": [
+        "Tuesday July 28th, 2026 at 2am",
+        "Tuesday July 28th, 2026 at 4am",
+        "Tuesday July 28th, 2026 at 3am"
+      ],
+      "savedAvailability": [
+        "Tuesday 2am",
+        "Tuesday 4am",
+        "Tuesday 3am"
+      ],
+      "visibility": "all",
+      "guildId": "1135360681835761746",
+      "timezone": "America/Los_Angeles",
+      "createdAt": "2026-07-25T23:00:55.942Z"
     }
   ],
   "players": [
