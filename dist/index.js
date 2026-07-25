@@ -1,9 +1,11 @@
 import 'dotenv/config';
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, EmbedBuilder, GatewayIntentBits, ModalBuilder, REST, Routes, SlashCommandBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, EmbedBuilder, GatewayIntentBits, ModalBuilder, SlashCommandBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import path from 'node:path';
+import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { cancelBookedSession, coachHasNoSlots, createBookedSession, formatAvailableSlotRanges, removeBookedSlot, restoreSavedAvailability } from './schedulerLogic.js';
 import { startActivity } from './activity.js';
+import { handleActivityAction } from './activityBridge.js';
 /* -------------------------------------------------------
    Constants & Setup
 -------------------------------------------------------- */
@@ -31,6 +33,126 @@ export const availabilityDayQueue = new Map();
 export const availabilityCurrentDay = new Map();
 export const coachListMessages = new Map();
 export const fallbackChannelName = process.env.FALLBACK_CHANNEL_NAME ?? 'schedule-requests';
+const activityServerPort = Number(process.env.ACTIVITY_PORT ?? process.env.PORT ?? 3000);
+const activityServerHost = process.env.ACTIVITY_HOST ?? '0.0.0.0';
+const publicDirectory = path.join(process.cwd(), 'public');
+const shouldRunActivityPreview = process.env.ACTIVITY_PREVIEW === '1' || process.env.SKIP_DISCORD_LOGIN === '1';
+function getContentType(filePath) {
+    switch (path.extname(filePath).toLowerCase()) {
+        case '.html': return 'text/html; charset=utf-8';
+        case '.js': return 'application/javascript; charset=utf-8';
+        case '.css': return 'text/css; charset=utf-8';
+        case '.json': return 'application/json; charset=utf-8';
+        default: return 'application/octet-stream';
+    }
+}
+async function serveStaticAsset(req, res, routePath) {
+    const safePath = path.normalize(routePath).replace(/^([a-zA-Z]:)?[\\/]+/, '');
+    const resolvedPath = path.join(publicDirectory, safePath);
+    if (!resolvedPath.startsWith(publicDirectory)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
+        return;
+    }
+    try {
+        const contents = await readFile(resolvedPath);
+        res.writeHead(200, { 'Content-Type': getContentType(resolvedPath) });
+        res.end(contents);
+    }
+    catch (error) {
+        if (error.code === 'ENOENT') {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+            return;
+        }
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Server error');
+    }
+}
+async function handleActivityHttpRequest(req, res) {
+    if (req.method === 'POST' && req.url === '/api/activity') {
+        let body = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => {
+            body += chunk;
+        });
+        req.on('end', async () => {
+            try {
+                const payload = JSON.parse(body || '{}');
+                const result = await handleActivityAction(payload);
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify(result));
+            }
+            catch (error) {
+                console.error('Activity API request failed', error);
+                res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ ok: false, message: 'Invalid activity payload.' }));
+            }
+        });
+        return;
+    }
+    if (req.method === 'GET') {
+        const requestPath = (req.url ?? '/').split('?')[0] || '/';
+        if (requestPath === '/' || requestPath === '/index.html') {
+            await serveStaticAsset(req, res, 'index.html');
+            return;
+        }
+        if (requestPath === '/activity.js') {
+            await serveStaticAsset(req, res, 'activity.js');
+            return;
+        }
+        if (requestPath === '/api/coaches') {
+            const data = await readData();
+            const coaches = data.coaches.map((coach) => ({
+                id: coach.id,
+                username: coach.username,
+                bio: coach.bio,
+                specialties: coach.specialties,
+                slots: coach.slots,
+                avatarUrl: coach.avatarUrl,
+                timezone: coach.timezone,
+                visibility: coach.visibility
+            }));
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ coaches }));
+            return;
+        }
+        if (requestPath === '/api/appointments') {
+            const data = await readData();
+            const appointments = data.sessions.map((session) => ({
+                id: session.id,
+                coachId: session.coachId,
+                coachUsername: session.coachUsername,
+                playerUsername: session.playerUsername,
+                slot: session.slot,
+                createdAt: session.createdAt
+            }));
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ appointments }));
+            return;
+        }
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found');
+}
+export async function handleActivityRequest(payload) {
+    return handleActivityAction(payload);
+}
+if (shouldRunActivityPreview) {
+    const activityHttpServer = createServer((req, res) => {
+        void handleActivityHttpRequest(req, res);
+    });
+    activityHttpServer.on('error', (error) => {
+        if (error.code === 'EADDRINUSE') {
+            console.warn(`Activity preview server could not bind ${activityServerHost}:${activityServerPort}; port is already in use.`);
+            return;
+        }
+        console.error('Activity preview server error', error);
+    });
+    activityHttpServer.listen(activityServerPort, activityServerHost, () => {
+        console.log(`Activity preview server listening on http://${activityServerHost}:${activityServerPort}`);
+    });
+}
 export const availabilityDays = [
     'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
 ];
@@ -1711,32 +1833,41 @@ client.once('ready', async () => {
         id: g.id,
         name: g.name
     })));
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    // Support multiple env variable formats
-    const configuredGuildIds = (process.env.GUILD_IDS ??
-        process.env.GUILD_ID ??
-        process.env.DISCORD_GUILD_ID ??
-        '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
-    try {
-        if (configuredGuildIds.length > 0) {
-            // Register commands per guild
-            for (const guildId of configuredGuildIds) {
-                await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, guildId), { body: commands });
-                console.log(`Slash commands registered for guild ${guildId}`);
-            }
-        }
-        else {
-            // Register globally
-            await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), { body: commands });
-            console.log('Slash commands registered globally');
-        }
-    }
-    catch (error) {
-        console.error('Failed to register slash commands', error);
-    }
+    // const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+    // // Support multiple env variable formats
+    // const configuredGuildIds = (
+    //     process.env.GUILD_IDS ??
+    //     process.env.GUILD_ID ??
+    //     process.env.DISCORD_GUILD_ID ??
+    //     ''
+    // )
+    //     .split(',')
+    //     .map((value) => value.trim())
+    //     .filter(Boolean);
+    // try {
+    //     if (configuredGuildIds.length > 0) {
+    //         // Register commands per guild
+    //         for (const guildId of configuredGuildIds) {
+    //             await rest.put(
+    //                 Routes.applicationGuildCommands(
+    //                     process.env.DISCORD_CLIENT_ID!,
+    //                     guildId
+    //                 ),
+    //                 { body: commands }
+    //             );
+    //             console.log(`Slash commands registered for guild ${guildId}`);
+    //         }
+    //     } else {
+    //         // Register globally
+    //         await rest.put(
+    //             Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
+    //             { body: commands }
+    //         );
+    //         console.log('Slash commands registered globally');
+    //     }
+    // } catch (error) {
+    //     console.error('Failed to register slash commands', error);
+    // }
     // Prune expired slots immediately on startup
     await pruneExpiredSlots();
     await processScheduledMondayRestores();
@@ -1756,4 +1887,9 @@ client.once('ready', async () => {
 /* -------------------------------------------------------
    Login
 -------------------------------------------------------- */
-client.login(process.env.DISCORD_TOKEN);
+if (process.env.SKIP_DISCORD_LOGIN === '1' || !process.env.DISCORD_TOKEN) {
+    console.log('Skipping Discord login; activity preview server is running without a bot token.');
+}
+else {
+    client.login(process.env.DISCORD_TOKEN);
+}

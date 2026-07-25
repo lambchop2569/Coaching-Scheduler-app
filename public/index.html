@@ -24,17 +24,65 @@
         border: none;
         border-radius: 8px;
         margin-right: 8px;
+        margin-top: 8px;
         cursor: pointer;
+        background: #5865f2;
+        color: white;
+      }
+      .secondary {
+        background: #4f545c;
+      }
+      .success {
+        background: #2f8f4f;
+      }
+      .danger {
+        background: #d83c3c;
+      }
+      .panel {
+        margin-top: 16px;
+        padding: 14px;
+        background: #36393f;
+        border-radius: 8px;
+      }
+      .coach-item, .appointment-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #4f545c;
+      }
+      .coach-summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: #5865f2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+      }
+      .avatar.large {
+        width: 56px;
+        height: 56px;
       }
     </style>
   </head>
   <body>
     <div class="card">
       <h1>Coach Scheduler Activity</h1>
-      <p>This is a Discord Activity shell for the scheduler experience.</p>
-      <button onclick="alert('Browse coaches')">Browse coaches</button>
-      <button onclick="alert('Set availability')">Set availability</button>
-      <button onclick="alert('Cancel appointment')">Cancel appointment</button>
+      <p id="description">Pick an action to get started.</p>
+      <div id="actions"></div>
+      <div id="details" class="panel"></div>
     </div>
+
+    <script src="./activity.js"></script>
   </body>
 </html>
