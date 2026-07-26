@@ -956,38 +956,55 @@ export async function notifyCoachOfRequest(
     requestId: string,
     fallbackChannelId: string | undefined,
     guildId: string | undefined
-) {
+): Promise<boolean> {
     const description = `${requesterUsername} requested a coaching session with you for ${slot}.`;
+    const payload = {
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('New coaching session request')
+                .setDescription(description)
+                .setColor(0x5865f2)
+        ],
+        components: [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`request-action:accept:${requestId}`)
+                    .setLabel('Accept')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`request-action:reject:${requestId}`)
+                    .setLabel('Reject')
+                    .setStyle(ButtonStyle.Danger)
+            )
+        ]
+    };
 
     try {
-        await sendDmToUser(coach.userId, guildId, {
-            embeds: [
-                new EmbedBuilder()
-                    .setTitle('New coaching session request')
-                    .setDescription(description)
-                    .setColor(0x5865f2)
-            ],
-            components: [
-                new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`request-action:accept:${requestId}`)
-                        .setLabel('Accept')
-                        .setStyle(ButtonStyle.Success),
-                    new ButtonBuilder()
-                        .setCustomId(`request-action:reject:${requestId}`)
-                        .setLabel('Reject')
-                        .setStyle(ButtonStyle.Danger)
-                )
-            ]
-        });
-
-        return;
+        await sendDmToUser(coach.userId, guildId, payload);
+        return true;
     } catch (err) {
         console.error(`Failed to DM coach ${coach.userId}`, err);
     }
 
-    // Fallback to server channel
-    if (!guildId) return;
+    if (fallbackChannelId) {
+        try {
+            const channel = await client.channels.fetch(fallbackChannelId);
+            if (channel?.isTextBased() && 'send' in channel) {
+                const mention = `<@${coach.userId}>`;
+                await channel.send({
+                    content: `${mention} ${description}`,
+                    ...payload
+                });
+                return true;
+            }
+        } catch (fallbackErr) {
+            console.error(`Failed to fallback notify coach ${coach.userId} in request channel`, fallbackErr);
+        }
+    }
+
+    if (!guildId) {
+        return false;
+    }
 
     try {
         const guild = await client.guilds.fetch(guildId);
@@ -1000,28 +1017,11 @@ export async function notifyCoachOfRequest(
 
         if (fallbackChannel && 'send' in fallbackChannel) {
             const mention = `<@${coach.userId}>`;
-
             await fallbackChannel.send({
                 content: `${mention} ${description}`,
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('New coaching session request')
-                        .setDescription(description)
-                        .setColor(0x5865f2)
-                ],
-                components: [
-                    new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`request-action:accept:${requestId}`)
-                            .setLabel('Accept')
-                            .setStyle(ButtonStyle.Success),
-                        new ButtonBuilder()
-                            .setCustomId(`request-action:reject:${requestId}`)
-                            .setLabel('Reject')
-                            .setStyle(ButtonStyle.Danger)
-                    )
-                ]
+                ...payload
             });
+            return true;
         }
     } catch (fallbackErr) {
         console.error(
@@ -1029,6 +1029,8 @@ export async function notifyCoachOfRequest(
             fallbackErr
         );
     }
+
+    return false;
 }
 
 export async function notifyRequesterOfDecision(
@@ -1941,7 +1943,7 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
 
-            await notifyCoachOfRequest(
+            const notified = await notifyCoachOfRequest(
                 coach,
                 pendingSelection.requesterUsername,
                 pendingSelection.slot,
@@ -1953,7 +1955,9 @@ client.on('interactionCreate', async (interaction) => {
             pendingScheduleSelections.delete(interaction.user.id);
 
             await interaction.update({
-                content: `You requested a coaching session with ${coach.username} for ${pendingSelection.slot}. They have been notified to confirm the booking.`,
+                content: notified
+                    ? `You requested a coaching session with ${coach.username} for ${pendingSelection.slot}. They have been notified to confirm the booking.`
+                    : `You requested a coaching session with ${coach.username} for ${pendingSelection.slot}, but the coach could not be notified. Please try again or contact them directly.`,
                 components: []
             });
             return;
