@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { cancelBookedSession, createBookedSession, removeBookedSlot } from './schedulerLogic.js';
-import { readData, writeData, writeScheduledAppointments } from './index.js';
+import { readData, writeData, writeScheduledAppointments, sendDmToUser } from './index.js';
 import type { BookedSession, SchedulerData } from './index.js';
 
 export interface ActivityActionPayload {
@@ -52,6 +52,20 @@ export async function handleActivityAction(payload: ActivityActionPayload, optio
     } else {
       await writeData(data);
       await writeScheduledAppointments(data.sessions);
+    }
+
+    if (!options?.dataFile) {
+      void sendDmToUser(coach.userId, coach.guildId, {
+        embeds: [
+          {
+            title: 'New coaching session booked',
+            description: `${payload.playerUsername} booked ${payload.slot} with you.`,
+            color: 0x57f287
+          }
+        ]
+      }).catch((err) => {
+        console.error(`Failed to DM coach ${coach.userId}`, err);
+      });
     }
 
     return { ok: true, message: 'Booking created.', session };

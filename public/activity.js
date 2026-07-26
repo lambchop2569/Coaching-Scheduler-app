@@ -99,11 +99,31 @@ function render() {
     actions.innerHTML = `
       <button class="secondary" data-action="browse">Back</button>
       <button data-action="home">Main menu</button>
+      ${state.selectedSlot ? `<button class="secondary" data-action="cancel-selection">Cancel selection</button><button class="success confirm-action" data-action="confirm-booking">Confirm ${state.selectedSlot}</button>` : ''}
     `;
     if (!coach) {
       details.innerHTML = '<p>That coach is no longer available.</p>';
       return;
     }
+
+    const weekdayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const slotsByDay = weekdayOrder.reduce((acc, day) => {
+      acc[day] = [];
+      return acc;
+    }, {});
+
+    coach.slots.forEach((slot) => {
+      const day = slot.split(' ')[0];
+      if (weekdayOrder.includes(day)) {
+        slotsByDay[day].push(slot);
+      }
+    });
+
+    const slotButton = (slot) => {
+      const time = slot.includes(' at ') ? slot.split(' at ').pop() : slot;
+      const selectedClass = state.selectedSlot === slot ? 'selected-slot' : '';
+      return `<button class="${selectedClass}" data-action="select-slot" data-slot="${slot}">${time}</button>`;
+    };
 
     details.innerHTML = `
       <div class="coach-summary">
@@ -115,11 +135,16 @@ function render() {
       </div>
       <p><strong>Specialties:</strong> ${coach.specialties.length > 0 ? coach.specialties.join(', ') : 'Not listed'}</p>
       <p><strong>Timezone:</strong> ${coach.timezone || 'Not set'}</p>
-      <div>
-        ${coach.slots.length > 0 ? coach.slots.map((slot) => `
-          <button data-action="confirm-slot" data-slot="${slot}">${slot}</button>
-        `).join('') : '<p>No availability published yet.</p>'}
+      ${coach.slots.length > 0 ? `
+      <div class="weekday-grid">
+        ${weekdayOrder.map((day) => `
+          <div class="weekday-column">
+            <h4>${day}</h4>
+            ${slotsByDay[day].length > 0 ? slotsByDay[day].map((slot) => slotButton(slot)).join('') : '<div class="no-slots">No slots</div>'}
+          </div>
+        `).join('')}
       </div>
+      ` : '<p>No availability published yet.</p>'}
       ${state.selectedSlot ? `<p>Selected slot: <strong>${state.selectedSlot}</strong></p>` : ''}
     `;
     return;
@@ -213,11 +238,20 @@ async function handleAction(action, button) {
     return;
   }
 
-  if (action === 'confirm-slot') {
+  if (action === 'select-slot') {
     state.selectedSlot = button.getAttribute('data-slot');
     state.view = 'coach';
     render();
+    return;
+  }
 
+  if (action === 'cancel-selection') {
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+
+  if (action === 'confirm-booking') {
     if (!state.selectedSlot || !state.selectedCoach) {
       setStatus('No slot selected.');
       return;
@@ -232,6 +266,10 @@ async function handleAction(action, button) {
     });
 
     const message = result.ok ? `Booking created for ${state.selectedSlot}.` : result.message || 'Booking failed.';
+    if (result.ok) {
+      state.selectedSlot = null;
+    }
+    render();
     setStatus(message);
     return;
   }
