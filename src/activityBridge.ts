@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { cancelBookedSession, createBookedSession, removeBookedSlot } from './schedulerLogic.js';
-import { client, fallbackChannelName, readData, writeData, writeScheduledAppointments, sendDmToUser } from './index.js';
-import type { BookedSession, CoachProfile, SchedulerData } from './index.js';
+import { client, fallbackChannelName, notifyCoachOfRequest, pendingRequests, readData, writeData, writeScheduledAppointments, sendDmToUser } from './index.js';
+import type { BookedSession, CoachProfile, PendingRequest, SchedulerData } from './index.js';
 
 export interface ActivityActionPayload {
-  action: 'book-slot' | 'cancel-appointment';
+  action: 'book-slot' | 'request-slot' | 'cancel-appointment';
   coachId?: string;
   playerId?: string;
   playerUsername?: string;
@@ -101,6 +101,29 @@ export async function handleActivityAction(payload: ActivityActionPayload, optio
     }
 
     return { ok: true, message: 'Booking created.', session };
+  }
+
+  if (payload.action === 'request-slot') {
+    if (!coach || !payload.playerId || !payload.playerUsername || !payload.slot) {
+      return { ok: false, message: 'Missing request information.' };
+    }
+
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pendingRequests.set(requestId, {
+      coachId: coach.id,
+      coachUsername: coach.username,
+      requesterId: payload.playerId,
+      requesterUsername: payload.playerUsername,
+      requesterChannelId: undefined,
+      requestChannelId: undefined,
+      guildId: coach.guildId,
+      requestInteraction: undefined,
+      slot: payload.slot
+    });
+
+    await notifyCoachOfRequest(coach, payload.playerUsername, payload.slot, requestId, undefined, coach.guildId);
+
+    return { ok: true, message: 'Request sent. Coach can accept or reject the booking.' };
   }
 
   if (payload.action === 'cancel-appointment') {

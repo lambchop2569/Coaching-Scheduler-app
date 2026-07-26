@@ -2,11 +2,38 @@ const state = {
   view: 'home',
   selectedCoach: null,
   selectedSlot: null,
+  playerName: 'Activity User',
   availabilityDraft: [],
   appointments: [],
   coaches: [],
   loadingCoaches: true
 };
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderPlayerNameField() {
+  const playerNameField = document.getElementById('playerNameField');
+  if (!playerNameField) return;
+  playerNameField.innerHTML = `
+    <label for="playerName">Your name</label>
+    <input id="playerName" type="text" value="${escapeHtml(state.playerName)}" placeholder="Enter your name" />
+  `;
+}
+
+function onInput(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.id === 'playerName') {
+    state.playerName = target.value || 'Activity User';
+  }
+}
 
 async function loadCoaches() {
   try {
@@ -57,6 +84,7 @@ function render() {
   const actions = document.getElementById('actions');
   const details = document.getElementById('details');
   const description = document.getElementById('description');
+  renderPlayerNameField();
 
   if (state.view === 'home') {
     description.textContent = 'Pick an action to get started.';
@@ -258,14 +286,16 @@ async function handleAction(action, button) {
     }
 
     const result = await sendActivityAction({
-      action: 'book-slot',
+      action: 'request-slot',
       coachId: state.selectedCoach,
       playerId: 'activity-user',
-      playerUsername: 'Activity User',
+      playerUsername: state.playerName || 'Activity User',
       slot: state.selectedSlot
     });
 
-    const message = result.ok ? `Booking created for ${state.selectedSlot}.` : result.message || 'Booking failed.';
+    const message = result.ok
+      ? `Request sent for ${state.selectedSlot}. Coach will confirm or reject the booking.`
+      : result.message || 'Request failed.';
     if (result.ok) {
       state.selectedSlot = null;
     }
@@ -325,6 +355,7 @@ function onClick(event) {
 
 function init() {
   document.addEventListener('click', onClick, true);
+  document.addEventListener('input', onInput, true);
   void Promise.all([loadCoaches(), loadAppointments()]);
 }
 

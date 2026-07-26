@@ -90,7 +90,7 @@ export interface PendingRequest {
     requesterChannelId?: string;
     requestChannelId?: string;
     guildId?: string;
-    requestInteraction: Interaction;
+    requestInteraction?: Interaction;
     slot: string;
 }
 
