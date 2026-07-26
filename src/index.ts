@@ -21,13 +21,6 @@ import path from 'node:path';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import {
-    kvGetSchedulerData,
-    kvSetSchedulerData,
-    kvGetAppointments,
-    kvSetAppointments,
-    kvAvailable
-} from './kvAdapter.js';
-import {
     upGetSchedulerData,
     upSetSchedulerData,
     upGetAppointments,
@@ -517,12 +510,6 @@ export async function publishSchedulerUi() {
 }
 
 export async function readScheduledAppointments(): Promise<BookedSession[]> {
-    // Try KV first when available
-    // Prefer Vercel KV, otherwise try Upstash
-    if (kvAvailable) {
-        const kv = await kvGetAppointments();
-        if (kv !== null) return kv;
-    }
     if (upstashAvailable) {
         const up = await upGetAppointments();
         if (up !== null) return up;
@@ -542,12 +529,6 @@ export async function readScheduledAppointments(): Promise<BookedSession[]> {
 }
 
 export async function writeScheduledAppointments(sessions: BookedSession[]) {
-    // Try to persist to KV when available; fall back to filesystem for local/dev
-    // Prefer KV, fall back to Upstash, otherwise filesystem
-    if (kvAvailable) {
-        const ok = await kvSetAppointments(sessions);
-        if (ok) return;
-    }
     if (upstashAvailable) {
         const ok = await upSetAppointments(sessions);
         if (ok) return;
@@ -560,34 +541,10 @@ export async function writeScheduledAppointments(sessions: BookedSession[]) {
 }
 
 export async function readData(): Promise<SchedulerData> {
-    // Try KV first when available
-    if (kvAvailable) {
-        const kv = await kvGetSchedulerData();
-        if (kv !== null) {
-            const data = kv as SchedulerData;
-                if (upstashAvailable) {
-                    const up = await upGetSchedulerData();
-                    if (up !== null) {
-                        const data = up as SchedulerData;
-                        data.coaches ??= [];
-                        data.players ??= [];
-                        data.sessions ??= [];
-
-                        const persistedSessions = await readScheduledAppointments();
-                        data.sessions = persistedSessions.length > 0 ? persistedSessions : data.sessions;
-
-                        for (const coach of data.coaches) {
-                            if (!Array.isArray(coach.savedAvailability)) {
-                                coach.savedAvailability = [...coach.slots];
-                            }
-                            coach.savedAvailability = coach.savedAvailability.map(templateFromSlot);
-                            coach.timezone ??= DEFAULT_COACH_TIMEZONE;
-                            coach.slots = coach.slots.map(slot => isDatedSlot(slot) ? slot : buildDatedSlot(slot));
-                        }
-
-                        return data;
-                    }
-                }
+    if (upstashAvailable) {
+        const up = await upGetSchedulerData();
+        if (up !== null) {
+            const data = up as SchedulerData;
             data.coaches ??= [];
             data.players ??= [];
             data.sessions ??= [];
@@ -646,9 +603,8 @@ let writeQueue = Promise.resolve();
 
 export async function writeData(data: any) {
     writeQueue = writeQueue.then(async () => {
-        // Try to persist to KV first when available.
-        if (kvAvailable) {
-            const ok = await kvSetSchedulerData(data);
+        if (upstashAvailable) {
+            const ok = await upSetSchedulerData(data);
             if (ok) return;
         }
 
