@@ -1924,9 +1924,8 @@ client.once('ready', async () => {
 /* -------------------------------------------------------
    Login
 -------------------------------------------------------- */
-if (process.env.SKIP_DISCORD_LOGIN === '1' || !process.env.DISCORD_TOKEN) {
-    console.log('Skipping Discord login; activity preview server is running without a bot token.');
+if (!process.env.DISCORD_TOKEN) {
+    console.error('DISCORD_TOKEN is required. Set DISCORD_TOKEN in your environment and restart the bot.');
+    process.exit(1);
 }
-else {
-    client.login(process.env.DISCORD_TOKEN);
-}
+client.login(process.env.DISCORD_TOKEN);
