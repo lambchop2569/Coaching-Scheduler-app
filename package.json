@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs",
     "start": "node dist/index.js",
-    "activity": "npm run build && SKIP_DISCORD_LOGIN=1 node dist/index.js"
+    "activity": "npm run build && node dist/index.js"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",

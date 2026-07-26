@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { cancelBookedSession, createBookedSession, removeBookedSlot } from './schedulerLogic.js';
-import { readData, writeData, writeScheduledAppointments, sendDmToUser } from './index.js';
+import { client, fallbackChannelName, readData, writeData, writeScheduledAppointments, sendDmToUser } from './index.js';
 export async function handleActivityAction(payload, options) {
     const dataFile = options?.dataFile ?? path.join(process.cwd(), 'data', 'scheduler-data.json');
     const appointmentsFile = options?.appointmentsFile ?? path.join(process.cwd(), 'data', 'scheduled-appointments.json');
@@ -25,6 +25,8 @@ export async function handleActivityAction(payload, options) {
             await writeScheduledAppointments(data.sessions);
         }
         if (!options?.dataFile) {
+            await writeData(data);
+            await writeScheduledAppointments(data.sessions);
             void sendDmToUser(coach.userId, coach.guildId, {
                 embeds: [
                     {
@@ -33,8 +35,31 @@ export async function handleActivityAction(payload, options) {
                         color: 0x57f287
                     }
                 ]
-            }).catch((err) => {
+            }).catch(async (err) => {
                 console.error(`Failed to DM coach ${coach.userId}`, err);
+                if (coach.guildId) {
+                    try {
+                        const guild = await client.guilds.fetch(coach.guildId);
+                        const channels = await guild.channels.fetch();
+                        const fallbackChannel = channels.find((channel) => channel?.isTextBased() &&
+                            channel.name === fallbackChannelName);
+                        if (fallbackChannel && 'send' in fallbackChannel) {
+                            await fallbackChannel.send({
+                                content: `<@${coach.userId}> ${payload.playerUsername} booked ${payload.slot} with you.`,
+                                embeds: [
+                                    {
+                                        title: 'New coaching session booked',
+                                        description: `${payload.playerUsername} booked ${payload.slot} with you.`,
+                                        color: 0x57f287
+                                    }
+                                ]
+                            });
+                        }
+                    }
+                    catch (fallbackErr) {
+                        console.error(`Failed to fallback notify coach ${coach.userId} in ${fallbackChannelName}`, fallbackErr);
+                    }
+                }
             });
         }
         return { ok: true, message: 'Booking created.', session };
