@@ -8,11 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs",
     "start": "node dist/index.js",
-    "activity": "npm run build && SKIP_DISCORD_LOGIN=1 node dist/index.js"
+    "activity": "npm run build && SKIP_DISCORD_LOGIN=1 node dist/index.js",
+    "migrate:kv": "node scripts/migrate-to-kv.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",
     "discord.js": "^14.16.2",
+    "@vercel/kv": "^0.3.0",
     "dotenv": "^16.4.1",
     "http-server": "^14.0.0"
   },

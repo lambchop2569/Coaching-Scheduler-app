@@ -3,6 +3,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, StringSelectMenuB
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { kvGetSchedulerData, kvSetSchedulerData, kvGetAppointments, kvSetAppointments, kvAvailable } from './kvAdapter.js';
 import { cancelBookedSession, coachHasNoSlots, createBookedSession, formatAvailableSlotRanges, removeBookedSlot, restoreSavedAvailability } from './schedulerLogic.js';
 import { startActivity } from './activity.js';
 import { handleActivityAction } from './activityBridge.js';
@@ -346,6 +347,12 @@ export async function publishSchedulerUi() {
     }
 }
 export async function readScheduledAppointments() {
+    // Try KV first when available
+    if (kvAvailable) {
+        const kv = await kvGetAppointments();
+        if (kv !== null)
+            return kv;
+    }
     try {
         const contents = await readFile(appointmentsFile, 'utf8');
         const sessions = JSON.parse(contents);
@@ -360,12 +367,39 @@ export async function readScheduledAppointments() {
     }
 }
 export async function writeScheduledAppointments(sessions) {
+    // Try to persist to KV when available; fall back to filesystem for local/dev
+    if (kvAvailable) {
+        const ok = await kvSetAppointments(sessions);
+        if (ok)
+            return;
+    }
     await mkdir(path.dirname(appointmentsFile), { recursive: true });
     const tmp = `${appointmentsFile}.tmp`;
     await writeFile(tmp, JSON.stringify(sessions, null, 2), 'utf8');
     await rename(tmp, appointmentsFile);
 }
 export async function readData() {
+    // Try KV first when available
+    if (kvAvailable) {
+        const kv = await kvGetSchedulerData();
+        if (kv !== null) {
+            const data = kv;
+            data.coaches ??= [];
+            data.players ??= [];
+            data.sessions ??= [];
+            const persistedSessions = await readScheduledAppointments();
+            data.sessions = persistedSessions.length > 0 ? persistedSessions : data.sessions;
+            for (const coach of data.coaches) {
+                if (!Array.isArray(coach.savedAvailability)) {
+                    coach.savedAvailability = [...coach.slots];
+                }
+                coach.savedAvailability = coach.savedAvailability.map(templateFromSlot);
+                coach.timezone ??= DEFAULT_COACH_TIMEZONE;
+                coach.slots = coach.slots.map(slot => isDatedSlot(slot) ? slot : buildDatedSlot(slot));
+            }
+            return data;
+        }
+    }
     try {
         const contents = await readFile(dataFile, 'utf8');
         const data = JSON.parse(contents);
@@ -374,18 +408,12 @@ export async function readData() {
         data.sessions ??= [];
         const persistedSessions = await readScheduledAppointments();
         data.sessions = persistedSessions.length > 0 ? persistedSessions : data.sessions;
-        // Profiles created before saved availability was introduced should still
-        // be restorable. Their current slots are the best available snapshot.
         for (const coach of data.coaches) {
             if (!Array.isArray(coach.savedAvailability)) {
                 coach.savedAvailability = [...coach.slots];
             }
-            // Saved availability is a reusable weekly template. Convert any
-            // older dated snapshots back to that template before future use.
             coach.savedAvailability = coach.savedAvailability.map(templateFromSlot);
             coach.timezone ??= DEFAULT_COACH_TIMEZONE;
-            // Existing profiles retain their slots but are displayed with a
-            // concrete date from their current availability week.
             coach.slots = coach.slots.map(slot => isDatedSlot(slot) ? slot : buildDatedSlot(slot));
         }
         return data;
@@ -402,6 +430,12 @@ export async function readData() {
 let writeQueue = Promise.resolve();
 export async function writeData(data) {
     writeQueue = writeQueue.then(async () => {
+        // Try to persist to KV first when available.
+        if (kvAvailable) {
+            const ok = await kvSetSchedulerData(data);
+            if (ok)
+                return;
+        }
         await mkdir(path.dirname(dataFile), { recursive: true });
         const tmp = `${dataFile}.tmp`;
         await writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
