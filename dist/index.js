@@ -98,6 +98,15 @@ async function handleActivityHttpRequest(req, res) {
             await serveStaticAsset(req, res, 'index.html');
             return;
         }
+        if (requestPath === '/activity-config.js') {
+            const clientId = process.env.DISCORD_CLIENT_ID ?? '';
+            res.writeHead(200, {
+                'Content-Type': 'application/javascript; charset=utf-8',
+                'Cache-Control': 'no-store'
+            });
+            res.end(`window.DISCORD_CLIENT_ID = ${JSON.stringify(clientId)};`);
+            return;
+        }
         if (requestPath === '/activity.js') {
             await serveStaticAsset(req, res, 'activity.js');
             return;

@@ -2,7 +2,10 @@ const state = {
   view: 'home',
   selectedCoach: null,
   selectedSlot: null,
-  playerName: 'Activity User',
+  playerId: 'activity-user',
+  playerUsername: 'Activity User',
+  discordIdentityError: null,
+  loadingDiscordIdentity: true,
   availabilityDraft: [],
   appointments: [],
   coaches: [],
@@ -21,9 +24,26 @@ function escapeHtml(value) {
 function renderPlayerNameField() {
   const playerNameField = document.getElementById('playerNameField');
   if (!playerNameField) return;
+
+  if (state.loadingDiscordIdentity) {
+    playerNameField.innerHTML = '<p>Loading Discord identity…</p>';
+    return;
+  }
+
+  if (state.playerId !== 'activity-user') {
+    playerNameField.innerHTML = `
+      <label>Your Discord username</label>
+      <div class="readonly">${escapeHtml(state.playerUsername)}</div>
+      <p class="hint">This username is sent to the coach in the DM.</p>
+    `;
+    return;
+  }
+
   playerNameField.innerHTML = `
     <label for="playerName">Your name</label>
-    <input id="playerName" type="text" value="${escapeHtml(state.playerName)}" placeholder="Enter your name" />
+    <input id="playerName" type="text" value="${escapeHtml(state.playerUsername)}" placeholder="Enter your name" />
+    <p class="hint">This name is shown to the coach in the DM.</p>
+    ${state.discordIdentityError ? `<p class="error">${escapeHtml(state.discordIdentityError)}</p>` : ''}
   `;
 }
 
@@ -31,7 +51,7 @@ function onInput(event) {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   if (target.id === 'playerName') {
-    state.playerName = target.value || 'Activity User';
+    state.playerUsername = target.value;
   }
 }
 
@@ -285,11 +305,17 @@ async function handleAction(action, button) {
       return;
     }
 
+    const playerUsername = state.playerUsername.trim();
+    if (!playerUsername) {
+      setStatus('Please enter your name before sending the request.');
+      return;
+    }
+
     const result = await sendActivityAction({
       action: 'request-slot',
       coachId: state.selectedCoach,
-      playerId: 'activity-user',
-      playerUsername: state.playerName || 'Activity User',
+      playerId: state.playerId || 'activity-user',
+      playerUsername,
       slot: state.selectedSlot
     });
 
@@ -353,10 +379,39 @@ function onClick(event) {
   }, '*');
 }
 
-function init() {
+async function loadDiscordIdentity() {
+  if (!window.DISCORD_CLIENT_ID) {
+    state.loadingDiscordIdentity = false;
+    render();
+    return;
+  }
+
+  try {
+    const sdkModule = await import('https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@2.5.0/output/index.mjs');
+    const { DiscordSDK } = sdkModule;
+    const sdk = new DiscordSDK(window.DISCORD_CLIENT_ID, { disableConsoleLogOverride: true });
+    await sdk.ready();
+
+    const response = await sdk.commands.getActivityInstanceConnectedParticipants();
+    const participant = (response.participants || []).find((entry) => !entry.bot) || response.participants?.[0];
+
+    if (participant) {
+      state.playerId = participant.id;
+      state.playerUsername = participant.global_name || participant.username || state.playerUsername;
+    }
+  } catch (error) {
+    console.warn('Discord identity lookup failed', error);
+    state.discordIdentityError = 'Unable to load Discord identity; please enter your name manually.';
+  } finally {
+    state.loadingDiscordIdentity = false;
+    render();
+  }
+}
+
+async function init() {
   document.addEventListener('click', onClick, true);
   document.addEventListener('input', onInput, true);
-  void Promise.all([loadCoaches(), loadAppointments()]);
+  await Promise.all([loadCoaches(), loadAppointments(), loadDiscordIdentity()]);
 }
 
 window.addEventListener('DOMContentLoaded', init);
