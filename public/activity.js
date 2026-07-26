@@ -2,8 +2,8 @@ const state = {
   view: 'home',
   selectedCoach: null,
   selectedSlot: null,
-  playerId: 'activity-user',
-  playerUsername: 'Activity User',
+  playerId: null,
+  playerUsername: '',
   discordIdentityError: null,
   loadingDiscordIdentity: true,
   availabilityDraft: [],
@@ -387,17 +387,39 @@ async function loadDiscordIdentity() {
   }
 
   try {
-    const sdkModule = await import('https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@2.5.0/output/index.mjs');
+    const sdkModule = await import('/embedded-app-sdk/index.mjs');
     const { DiscordSDK } = sdkModule;
     const sdk = new DiscordSDK(window.DISCORD_CLIENT_ID, { disableConsoleLogOverride: true });
     await sdk.ready();
 
-    const response = await sdk.commands.getActivityInstanceConnectedParticipants();
-    const participant = (response.participants || []).find((entry) => !entry.bot) || response.participants?.[0];
+    let username = undefined;
+    let userId = undefined;
 
-    if (participant) {
-      state.playerId = participant.id;
-      state.playerUsername = participant.global_name || participant.username || state.playerUsername;
+    try {
+      const channel = await sdk.commands.getChannel({ channel_id: sdk.channelId });
+      const author = channel.messages?.[0]?.author; 
+      if (author) {
+        username = author.global_name || author.username;
+        userId = author.id;
+      }
+    } catch (error) {
+      console.warn('getChannel identity lookup failed', error);
+    }
+
+    if (!username) {
+      const response = await sdk.commands.getActivityInstanceConnectedParticipants();
+      const participant = (response.participants || []).find((entry) => !entry.bot) || response.participants?.[0];
+      if (participant) {
+        username = participant.global_name || participant.username;
+        userId = participant.id;
+      }
+    }
+
+    if (username) {
+      state.playerId = userId || state.playerId;
+      state.playerUsername = username;
+    } else {
+      state.discordIdentityError = 'Unable to determine Discord username; please enter your name manually.';
     }
   } catch (error) {
     console.warn('Discord identity lookup failed', error);

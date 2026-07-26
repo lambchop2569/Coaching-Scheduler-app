@@ -37,6 +37,7 @@ export const fallbackChannelName = process.env.FALLBACK_CHANNEL_NAME ?? 'schedul
 const activityServerPort = Number(process.env.ACTIVITY_PORT ?? process.env.PORT ?? 3000);
 const activityServerHost = process.env.ACTIVITY_HOST ?? '0.0.0.0';
 const publicDirectory = path.join(process.cwd(), 'public');
+const sdkDirectory = path.join(process.cwd(), 'node_modules', '@discord', 'embedded-app-sdk', 'output');
 const shouldRunActivityPreview = process.env.ACTIVITY_PREVIEW === '1' || process.env.SKIP_DISCORD_LOGIN === '1';
 function getContentType(filePath) {
     switch (path.extname(filePath).toLowerCase()) {
@@ -48,9 +49,12 @@ function getContentType(filePath) {
     }
 }
 async function serveStaticAsset(req, res, routePath) {
+    return serveStaticAssetFrom(req, res, publicDirectory, routePath);
+}
+async function serveStaticAssetFrom(req, res, baseDirectory, routePath) {
     const safePath = path.normalize(routePath).replace(/^([a-zA-Z]:)?[\\/]+/, '');
-    const resolvedPath = path.join(publicDirectory, safePath);
-    if (!resolvedPath.startsWith(publicDirectory)) {
+    const resolvedPath = path.join(baseDirectory, safePath);
+    if (!resolvedPath.startsWith(baseDirectory)) {
         res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Forbidden');
         return;
@@ -105,6 +109,11 @@ async function handleActivityHttpRequest(req, res) {
                 'Cache-Control': 'no-store'
             });
             res.end(`window.DISCORD_CLIENT_ID = ${JSON.stringify(clientId)};`);
+            return;
+        }
+        if (requestPath.startsWith('/embedded-app-sdk/')) {
+            const sdkPath = requestPath.replace(/^\/embedded-app-sdk\//, '');
+            await serveStaticAssetFrom(req, res, sdkDirectory, sdkPath);
             return;
         }
         if (requestPath === '/activity.js') {

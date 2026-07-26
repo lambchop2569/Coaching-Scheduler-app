@@ -157,6 +157,7 @@ export const fallbackChannelName =
 const activityServerPort = Number(process.env.ACTIVITY_PORT ?? process.env.PORT ?? 3000);
 const activityServerHost = process.env.ACTIVITY_HOST ?? '0.0.0.0';
 const publicDirectory = path.join(process.cwd(), 'public');
+const sdkDirectory = path.join(process.cwd(), 'node_modules', '@discord', 'embedded-app-sdk', 'output');
 const shouldRunActivityPreview = process.env.ACTIVITY_PREVIEW === '1' || process.env.SKIP_DISCORD_LOGIN === '1';
 
 function getContentType(filePath: string) {
@@ -170,10 +171,14 @@ function getContentType(filePath: string) {
 }
 
 async function serveStaticAsset(req: IncomingMessage, res: ServerResponse, routePath: string) {
-    const safePath = path.normalize(routePath).replace(/^([a-zA-Z]:)?[\\/]+/, '');
-    const resolvedPath = path.join(publicDirectory, safePath);
+    return serveStaticAssetFrom(req, res, publicDirectory, routePath);
+}
 
-    if (!resolvedPath.startsWith(publicDirectory)) {
+async function serveStaticAssetFrom(req: IncomingMessage, res: ServerResponse, baseDirectory: string, routePath: string) {
+    const safePath = path.normalize(routePath).replace(/^([a-zA-Z]:)?[\\/]+/, '');
+    const resolvedPath = path.join(baseDirectory, safePath);
+
+    if (!resolvedPath.startsWith(baseDirectory)) {
         res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Forbidden');
         return;
@@ -230,6 +235,12 @@ async function handleActivityHttpRequest(req: IncomingMessage, res: ServerRespon
                 'Cache-Control': 'no-store'
             });
             res.end(`window.DISCORD_CLIENT_ID = ${JSON.stringify(clientId)};`);
+            return;
+        }
+
+        if (requestPath.startsWith('/embedded-app-sdk/')) {
+            const sdkPath = requestPath.replace(/^\/embedded-app-sdk\//, '');
+            await serveStaticAssetFrom(req, res, sdkDirectory, sdkPath);
             return;
         }
 
